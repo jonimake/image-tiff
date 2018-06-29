@@ -33,6 +33,25 @@ fn test_gray_u16()
     assert_eq!(decoder.colortype().unwrap(), ColorType::Gray(16));
     let img_res = decoder.read_image();
     assert!(img_res.is_ok());
+     match img_res.unwrap() {
+       DecodingResult::U16(v) => {
+            let v_iter = v.into_iter();
+            let t = v_iter.take(10).collect::<Vec<u16>>();
+            println!("{:?}", t);
+        }
+        _ => assert!(false)
+    };
+    assert!(false);
+}
+
+#[test]
+fn test_gray_u32()
+{
+    let img_file = File::open("./tests/images/minisblack-1c-32b.tiff").expect("Cannot find test image!");
+    let mut decoder = Decoder::new(img_file).expect("Cannot create decoder");
+    assert_eq!(decoder.colortype().unwrap(), ColorType::Gray(32));
+    let img_res = decoder.read_image();
+    assert!(img_res.is_ok());
 }
 
 #[test]

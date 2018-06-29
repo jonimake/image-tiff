@@ -24,7 +24,9 @@ pub enum DecodingResult {
     /// A vector of unsigned bytes
     U8(Vec<u8>),
     /// A vector of unsigned words
-    U16(Vec<u16>)
+    U16(Vec<u16>),
+
+    U32(Vec<u32>)
 }
 
 // A buffer for image decoding
@@ -32,7 +34,9 @@ enum DecodingBuffer<'a> {
     /// A slice of unsigned bytes
     U8(&'a mut [u8]),
     /// A slice of unsigned words
-    U16(&'a mut [u16])
+    U16(&'a mut [u16]),
+
+    U32(&'a mut [u32])
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, FromPrimitive)]
@@ -103,6 +107,12 @@ impl Wrapping for u16 {
     }
 }
 
+impl Wrapping for u32 {
+    fn wrapping_add(&self, other: Self) -> Self {
+        u32::wrapping_add(*self, other)
+    }
+}
+
 fn rev_hpredict_nsamp<T>(mut image: Vec<T>,
                          size: (u32, u32),
                          samples: usize)
@@ -135,6 +145,9 @@ fn rev_hpredict(image: DecodingResult, size: (u32, u32), color_type: ColorType) 
         },
         DecodingResult::U16(buf) => {
             DecodingResult::U16(rev_hpredict_nsamp(buf, size, samples))
+        },
+        DecodingResult::U32(buf) => {
+            DecodingResult::U32(rev_hpredict_nsamp(buf, size, samples))
         }
     })
 }
@@ -429,6 +442,15 @@ impl<R: Read + Seek> Decoder<R> {
                 }
                 bytes/2
             }
+            (ColorType::Gray(32), DecodingBuffer::U32(ref mut buffer)) => {
+                for datum in buffer[..bytes/4].iter_mut() {
+                    *datum = try!(reader.read_u32());
+                    if self.photometric_interpretation == PhotometricInterpretation::WhiteIsZero {
+                        *datum = 0xffff - *datum
+                    }
+                }
+                bytes/2
+            }
             (ColorType::Gray(16), DecodingBuffer::U16(ref mut buffer)) => {
                 for datum in buffer[..bytes/2].iter_mut() {
                     *datum = try!(reader.read_u16());
@@ -467,6 +489,7 @@ impl<R: Read + Seek> Decoder<R> {
         let mut result = match self.bits_per_sample.iter().cloned().max().unwrap_or(8) {
             n if n <= 8 => DecodingResult::U8(Vec::with_capacity(buffer_size)),
             n if n <= 16 => DecodingResult::U16(Vec::with_capacity(buffer_size)),
+            n if n <= 32 => DecodingResult::U32(Vec::with_capacity(buffer_size)),
             n => return Err(
                 TiffError::UnsupportedError(
                     format!("{} bits per channel not supported", n)
@@ -486,6 +509,8 @@ impl<R: Read + Seek> Decoder<R> {
             DecodingResult::U8(ref mut buffer) =>
                 unsafe { buffer.set_len(buffer_size) },
             DecodingResult::U16(ref mut buffer) =>
+                unsafe { buffer.set_len(buffer_size) },
+            DecodingResult::U32(ref mut buffer) => 
                 unsafe { buffer.set_len(buffer_size) },
         }
         let mut units_read = 0;
@@ -507,6 +532,12 @@ impl<R: Read + Seek> Decoder<R> {
                         offset, byte_count, uncompressed_strip_size
                     ))
                 },
+                DecodingResult::U32(ref mut buffer) => {
+                    try!(self.expand_strip(
+                        DecodingBuffer::U32(&mut buffer[units_read..]),
+                        offset, byte_count, uncompressed_strip_size
+                    ))
+                },
             };
             if units_read == buffer_size {
                 break
@@ -518,6 +549,8 @@ impl<R: Read + Seek> Decoder<R> {
                 DecodingResult::U8(ref mut buffer) =>
                     unsafe { buffer.set_len(units_read) },
                 DecodingResult::U16(ref mut buffer) =>
+                    unsafe { buffer.set_len(units_read) },
+                DecodingResult::U32(ref mut buffer) =>
                     unsafe { buffer.set_len(units_read) },
             }
         }
